@@ -108,12 +108,37 @@ source_md = (
 _old_docs=[]
 _new_docs=[]
 
-def write_doc(src: str, dest: str, options:dict=None ):
+def __build_labeled_toc_section( label: str, toc_entries: str ) -> str:
+    """
+    Wrap toc_entries under a labeled sub-section for multi-source nav.
+    For a single-page source uses inline format: ``- label: page.md``.
+    For multi-page sources nests items one indent level deeper.
+    """
+    ref_tab    = 2 * TAB_SPACES  # 8 spaces — standard toc item indent
+    extra_tab  = TAB_SPACES      # 4 extra spaces for nested items
+    entry_lines = [l for l in toc_entries.splitlines(keepends=True) if l.strip()]
+    if not entry_lines:
+        return ""
+    # Single entry with no inline key → use "- label: page.md" shorthand
+    if len(entry_lines) == 1:
+        entry = entry_lines[0].strip()
+        if entry.startswith("- ") and ": " not in entry:
+            page = entry[2:].strip()
+            return ref_tab + "- " + label + ": " + page + "\n"
+    # Multiple entries (or already has key): nest under label
+    result = ref_tab + "- " + label + ":\n"
+    for line in entry_lines:
+        result += extra_tab + line
+    return result
+
+def write_doc(src: str, dest: str, options: dict = None, _skip_yaml: bool = False):
     """
     Generate documentation from Python source. 
     
     **Parameters**    
-    > **src:** `str` -- Source python import name OR directory path.    
+    > **src:** `str` -- Source python import name OR directory path.
+    >   May be a comma-delimited list of sources; each will appear as a
+    >   labeled item in the Reference nav section.
     > **dest:** `str` -- Destination directory path.    
     > **options:** `dict` -- Extended options.
     
@@ -122,18 +147,43 @@ def write_doc(src: str, dest: str, options:dict=None ):
     """        
     global _old_docs
     global _new_docs
-    
+
+    # Multi-source: comma-delimited list of sources
+    sources = [s.strip() for s in src.split(',') if s.strip()]
+    if len(sources) > 1:
+        project_name = os.path.basename(os.path.abspath(dest))
+        yaml_path    = os.path.join(dest, 'mkdocs.yml')
+        doc_path     = os.path.join(os.path.abspath(dest), __docs_dir(yaml_path))
+        if not os.path.isdir(doc_path): os.makedirs(doc_path)
+        for cur_path, _, files in os.walk(doc_path):
+            rel_dir_path = os.path.relpath(cur_path, doc_path)
+            for file in files:
+                if os.path.splitext(file)[1] == '.md':
+                    _old_docs.append(os.path.normpath(
+                        os.path.join(rel_dir_path, file)))
+        combined_toc = ""
+        for s in sources:
+            sub_toc = write_doc(s, dest, options, _skip_yaml=True)
+            if sub_toc:
+                label = os.path.basename(os.path.normpath(s))
+                combined_toc += __build_labeled_toc_section(label, sub_toc)
+        if not combined_toc:
+            raise ValueError("All the files seem invalid")
+        write_mkdocs_yaml(yaml_path, project_name, combined_toc, doc_path)
+        return
+
     #print( "write_doc", src, dest, options )
     project_name = os.path.basename(os.path.abspath(dest)) # resolves args e.g. simply "." for "this directory" 
 
     yaml_path = os.path.join(dest, 'mkdocs.yml')
     doc_path = os.path.join(os.path.abspath(dest), __docs_dir(yaml_path))
-    if not os.path.isdir(doc_path): os.makedirs(doc_path)        
-    for cur_path, _, files in os.walk(doc_path):
-        rel_dir_path = os.path.relpath(cur_path, doc_path)
-        for file in files:
-            if os.path.splitext(file)[1]=='.md':
-                _old_docs.append(os.path.normpath(os.path.join(rel_dir_path, file)))
+    if not os.path.isdir(doc_path): os.makedirs(doc_path)
+    if not _skip_yaml:  # only scan for pre-existing docs on a top-level call
+        for cur_path, _, files in os.walk(doc_path):
+            rel_dir_path = os.path.relpath(cur_path, doc_path)
+            for file in files:
+                if os.path.splitext(file)[1]=='.md':
+                    _old_docs.append(os.path.normpath(os.path.join(rel_dir_path, file)))
             
     toc = ""
     lines = []
@@ -339,9 +389,12 @@ def write_doc(src: str, dest: str, options:dict=None ):
             except Exception as e: __on_warn_exc("TOC error", e)
 
     #print( "toc", toc )
-    if len(toc) == 0:
+    if not _skip_yaml and len(toc) == 0:
         raise ValueError("All the files seem invalid")
     
+    if _skip_yaml:
+        return toc
+
     write_mkdocs_yaml(yaml_path, project_name, toc, doc_path)
 
 def write_module(
