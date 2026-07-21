@@ -24,7 +24,7 @@ Once you have installed it, `pymkdocs` will be available to run from a terminal 
 | pyMkDocs |
 This utility generates MkDocs websites from Python source code.
 Help:  pymkdocs -h/--help
-Usage: pymkdocs source destination [-m/-r] [-c] [-s]
+Usage: pymkdocs source[,source2,...] destination [-m/-r] [-c] [-s]
 -m: magic mode (default) / -r: raw mode
 -c: include source code
 -s: serve test site
