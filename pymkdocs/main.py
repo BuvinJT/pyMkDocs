@@ -34,10 +34,11 @@ def __parse_args(argv):
     VERSION = "v.{0}".format( __version__ )
     DESCR   = "This utility generates MkDocs websites from Python source code."
     USAGE   =("Help:  pymkdocs -h/--help\n" 
-            "Usage: pymkdocs source destination [{0}/{1}] [{2}] [{3}]\n"
+            "Usage: pymkdocs source[,source2,...] destination [{0}/{1}] [{2}] [{3}]\n"
             "{0}: magic mode (default) / {1}: raw mode\n"
             "{2}: include source code\n"
-            "{3}: serve test site\n").format( 
+            "{3}: serve test site\n"
+            "source: module name or path; comma-separate multiple sources\n").format( 
             MAGIC_SWITCH, RAW_SWITCH, SOURCE_SWITCH, SERVE_SWITCH)
  
     argv = sys.argv if argv is None else argv

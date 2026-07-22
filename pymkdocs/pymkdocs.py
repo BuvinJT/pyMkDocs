@@ -108,12 +108,37 @@ source_md = (
 _old_docs=[]
 _new_docs=[]
 
-def write_doc(src: str, dest: str, options:dict=None ):
+def __build_labeled_toc_section( label: str, toc_entries: str ) -> str:
+    """
+    Wrap toc_entries under a labeled sub-section for multi-source nav.
+    For a single-page source uses inline format: ``- label: page.md``.
+    For multi-page sources nests items one indent level deeper.
+    """
+    ref_tab    = 2 * TAB_SPACES  # 8 spaces — standard toc item indent
+    extra_tab  = TAB_SPACES      # 4 extra spaces for nested items
+    entry_lines = [l for l in toc_entries.splitlines(keepends=True) if l.strip()]
+    if not entry_lines:
+        return ""
+    # Single entry with no inline key → use "- label: page.md" shorthand
+    if len(entry_lines) == 1:
+        entry = entry_lines[0].strip()
+        if entry.startswith("- ") and ": " not in entry:
+            page = entry[2:].strip()
+            return ref_tab + "- " + label + ": " + page + "\n"
+    # Multiple entries (or already has key): nest under label
+    result = ref_tab + "- " + label + ":\n"
+    for line in entry_lines:
+        result += extra_tab + line
+    return result
+
+def write_doc(src: str, dest: str, options: dict = None, _skip_yaml: bool = False):
     """
     Generate documentation from Python source. 
     
     **Parameters**    
-    > **src:** `str` -- Source python import name OR directory path.    
+    > **src:** `str` -- Source python import name OR directory path.
+    >   May be a comma-delimited list of sources; each will appear as a
+    >   labeled item in the Reference nav section.
     > **dest:** `str` -- Destination directory path.    
     > **options:** `dict` -- Extended options.
     
@@ -122,18 +147,43 @@ def write_doc(src: str, dest: str, options:dict=None ):
     """        
     global _old_docs
     global _new_docs
-    
+
+    # Multi-source: comma-delimited list of sources
+    sources = [s.strip() for s in src.split(',') if s.strip()]
+    if len(sources) > 1:
+        project_name = os.path.basename(os.path.abspath(dest))
+        yaml_path    = os.path.join(dest, 'mkdocs.yml')
+        doc_path     = os.path.join(os.path.abspath(dest), __docs_dir(yaml_path))
+        if not os.path.isdir(doc_path): os.makedirs(doc_path)
+        for cur_path, _, files in os.walk(doc_path):
+            rel_dir_path = os.path.relpath(cur_path, doc_path)
+            for file in files:
+                if os.path.splitext(file)[1] == '.md':
+                    _old_docs.append(os.path.normpath(
+                        os.path.join(rel_dir_path, file)))
+        combined_toc = ""
+        for s in sources:
+            sub_toc = write_doc(s, dest, options, _skip_yaml=True)
+            if sub_toc:
+                label = os.path.basename(os.path.normpath(s))
+                combined_toc += __build_labeled_toc_section(label, sub_toc)
+        if not combined_toc:
+            raise ValueError("All the files seem invalid")
+        write_mkdocs_yaml(yaml_path, project_name, combined_toc, doc_path)
+        return
+
     #print( "write_doc", src, dest, options )
     project_name = os.path.basename(os.path.abspath(dest)) # resolves args e.g. simply "." for "this directory" 
 
     yaml_path = os.path.join(dest, 'mkdocs.yml')
     doc_path = os.path.join(os.path.abspath(dest), __docs_dir(yaml_path))
-    if not os.path.isdir(doc_path): os.makedirs(doc_path)        
-    for cur_path, _, files in os.walk(doc_path):
-        rel_dir_path = os.path.relpath(cur_path, doc_path)
-        for file in files:
-            if os.path.splitext(file)[1]=='.md':
-                _old_docs.append(os.path.normpath(os.path.join(rel_dir_path, file)))
+    if not os.path.isdir(doc_path): os.makedirs(doc_path)
+    if not _skip_yaml:  # only scan for pre-existing docs on a top-level call
+        for cur_path, _, files in os.walk(doc_path):
+            rel_dir_path = os.path.relpath(cur_path, doc_path)
+            for file in files:
+                if os.path.splitext(file)[1]=='.md':
+                    _old_docs.append(os.path.normpath(os.path.join(rel_dir_path, file)))
             
     toc = ""
     lines = []
@@ -339,9 +389,12 @@ def write_doc(src: str, dest: str, options:dict=None ):
             except Exception as e: __on_warn_exc("TOC error", e)
 
     #print( "toc", toc )
-    if len(toc) == 0:
+    if not _skip_yaml and len(toc) == 0:
         raise ValueError("All the files seem invalid")
     
+    if _skip_yaml:
+        return toc
+
     write_mkdocs_yaml(yaml_path, project_name, toc, doc_path)
 
 def write_module(
@@ -773,8 +826,8 @@ def create_class(module, package_name, name: str, obj, options: dict):
             for arg in args:
                 if arg=='self': continue
                 annot = annotations.get(arg)                
-                default_parms.append( '%s()' % (annot.__name__,) 
-                                     if annot else 'None' )             
+                default_parms.append( '%s()' % (annot.__name__,)
+                                     if annot and hasattr(annot, '__name__') else 'None' )             
         else :
             f = create_fun(n, o, options)
             if f: clas["instance_methods"].append(f)
@@ -797,8 +850,9 @@ def create_class(module, package_name, name: str, obj, options: dict):
     v = None    
     for n, o in inspect.getmembers(obj):        
         if n not in builtin_names and n not in all_method_names:
-            if default_inst: 
-                v = getattr(default_inst, n, None)
+            if default_inst:
+                try: v = getattr(default_inst, n, None)
+                except Exception: v = None
             d = None # updated later via ast parsing
             c =(create_class(module, package_name, "%s.%s" % (name,n), o, options) 
                 if inspect.isclass(o) else None )
@@ -886,6 +940,7 @@ def create_class(module, package_name, name: str, obj, options: dict):
         for class_name in clas["base"]:
             derived_class = __get_import_class( 
                 module, package_name, class_name, options )
+            if derived_class is None: continue
             clas["instance_attributes"] = __override_attributes( 
                 clas["instance_attributes"], derived_class["instance_attributes"])
         clas["instance_attributes"] = __override_attributes( 
@@ -1064,6 +1119,14 @@ def __get_module_path( module_name: str, is_extern_mem_space=False ):
     except Exception as e:
         path = os.path.join(os.path.abspath(module_name),'__init__.py')
         if os.path.isfile(path): return path
+        # Fall back: search already-loaded modules for a name ending in this module
+        suffix = "." + module_name
+        for loaded_name, loaded_mod in list(sys.modules.items()):
+            if (loaded_name == module_name or loaded_name.endswith(suffix)) and loaded_mod is not None:
+                try:
+                    fpath = inspect.getfile(loaded_mod)
+                    if os.path.isfile(fpath): return fpath
+                except: pass
         __on_err_exc("cannot resolve path for module %s" % 
                      (module_name,), e)    
      
@@ -1093,7 +1156,25 @@ def __get_import_by_path( path: str, other_paths: list=None,
     if package_name=='__init__':
         path = os.path.dirname(path)
         package_name = os.path.basename(path)
-        path = os.path.dirname(path)        
+        path = os.path.dirname(path)
+    else:
+        file_dir = os.path.dirname(os.path.abspath(path))
+        # Walk up to find the top-level package root (stop when no __init__.py)
+        current_dir = file_dir
+        parts = [package_name]
+        while os.path.isfile(os.path.join(current_dir, '__init__.py')):
+            parts.insert(0, os.path.basename(current_dir))
+            parent = os.path.dirname(current_dir)
+            if parent == current_dir:  # reached filesystem root
+                break
+            current_dir = parent
+        if len(parts) > 1:
+            # Module is inside a package; use full dotted name
+            package_name = '.'.join(parts)
+            path = current_dir
+        else:
+            # Standalone module; use its containing directory
+            path = file_dir
     paths=[path]+(other_paths if other_paths else [])
     [sys.path.insert(0, p) for p in reversed(paths)]
     try:
@@ -1153,9 +1234,10 @@ def __docstring( ast_root_node, varname, mod_source ):
     var_lineno = None    
     for child in ast.iter_child_nodes( ast_root_node ):        
         if var_lineno is None:            
-            if   isinstance( child, ast.Assign ): targets = child.targets
-            elif isinstance( child, ast.Tuple  ): targets = child.elts
-            else:                                 targets = []            
+            if   isinstance( child, ast.Assign ):    targets = child.targets
+            elif isinstance( child, ast.AnnAssign ): targets = [child.target]
+            elif isinstance( child, ast.Tuple  ):    targets = child.elts
+            else:                                     targets = []            
             for target in targets:
                 if isinstance( target, ast.Name ) and target.id==varname:
                     var_lineno = child.lineno
@@ -1213,7 +1295,17 @@ def __var_docstring( module, varname: str ):
             if isinstance( child, ast.ImportFrom ):               
                 names = [n.asname if n.asname else n.name  
                          for n in child.names]
-                if varname in names: return child.module 
+                if varname in names:
+                    name = child.module
+                    if child.level > 0:
+                        # Relative import: reconstruct full dotted name
+                        pkg = getattr(module, "__package__", None) or getattr(module, "__name__", "") or ""
+                        parts = pkg.split(".") if pkg else []
+                        # level 1 = current pkg, level 2 = parent pkg, etc.
+                        parts = parts[:max(0, len(parts) - (child.level - 1))]
+                        base = ".".join(parts)
+                        name = (base + "." + name) if (base and name) else (base or name or "")
+                    return name
         return None
       
     try: 
@@ -1223,6 +1315,25 @@ def __var_docstring( module, varname: str ):
         if docstring == False:
             module_name = __get_import_module_name( root_node, varname )
             #print( "module_name", module_name )
+            if not module_name:
+                # Fall back: try wildcard imports (from X import *)
+                for child in ast.walk( root_node ):
+                    if ( isinstance( child, ast.ImportFrom ) and
+                         child.names and child.names[0].name == '*' ):
+                        wname = child.module or ""
+                        if child.level > 0:
+                            wpkg = getattr(module, "__package__", None) or getattr(module, "__name__", "") or ""
+                            wparts = wpkg.split(".") if wpkg else []
+                            wparts = wparts[:max(0, len(wparts) - (child.level - 1))]
+                            wbase = ".".join(wparts)
+                            wname = (wbase + "." + wname) if (wbase and wname) else (wbase or wname)
+                        if not wname: continue
+                        try:
+                            star_mod = __get_import_module( wname )
+                            if star_mod and hasattr( star_mod, varname ):
+                                module_name = wname
+                                break
+                        except: pass
             if not module_name: 
                 raise RuntimeWarning("Can't find assignment or import")
                         
