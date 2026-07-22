@@ -96,7 +96,7 @@ pymkdocs src . -r -c -s
 
 ### Magic Docs Example
 
-The following procedure may be used to document the source of a Python project in a more "sophisticated" manner.  
+The following procedure may be used to document the source of a Python project in a more sophisticated manner.  
 
 Typically, you would use this method to create documentation for the *clients* of a *library*. See below for more details on "Magic Mode".
 
@@ -114,11 +114,13 @@ Example:
 pymkdocs src . -m -s
 ~~~
 
-> You should see a variety of similarities, and differences, compared to using "raw mode" against the same source.
+The `src` argument here is the path to a relative directory, which is Python package. Any nested packages are recursively found and documented as well.
+
+You should see a variety of similarities, and differences, compared to using "raw mode" against the same source.
 
 ### Third Party Library Scenario
 
-The following procedure may used to document the source of a *third party library*. This can be extremely useful when applied against a code base which has little to no documentation of its own! 
+The following procedure may be used to document the source of a *third party library*. This can be extremely useful when applied against a code base which has little to no documentation of its own! 
 
 1. Pip install a library of your choice.  
 
@@ -127,7 +129,7 @@ Example:
 pip install pymkdocs
 ~~~
 
-2. Run pyMkDocs against that library in "magic mode", providing the **import** name as the "source" (rather than a directory path). 
+2. Run pyMkDocs against that library in "magic mode", providing the **package name** (which you would use as a import) as the "source" argument rather than a directory path. 
 
 Example: 
 ~~~ 
@@ -135,6 +137,13 @@ pymkdocs pymkdocs ./pymkdocs_docs -s
 ~~~
 
 > Note: the `-m` switch was omitted here because "magic mode" is, in fact, the default.
+
+3. You can do the same with builtin imports. You may optionally spec mutliple packages via a comma delimited list. The order of the packages will drive the order of the referrence list.
+
+Example: 
+~~~ 
+pymkdocs os,sys,time ./py_docs -s
+~~~
 
 ### Library Maintenance SOP
 
@@ -144,7 +153,7 @@ If you are maintaining a Python library, we recommend standardizing the followin
 
 2. Start using pyMkDocs throughout the development process. Ideally, include "docstrings" and "magic comments" in your source (see below).
 
-3. Whenever you test your code changes locally, run a script such as the following to reinstall the library in your testing environment, and simultaneously regenerate the documentation within the project's directory:
+3. Whenever you test your code changes, run a script such as the following which will reinstall the library, and simultaneously regenerate the documentation:
 
 ~~~
 cd my_library
