@@ -278,7 +278,7 @@ def write_doc(src: str, dest: str, options: dict = None, _skip_yaml: bool = Fals
                     mdMap[mdfile_name].append((SRC,source_lines))
         else:                
             mdfile_name = "%s.md" % (package_name,) 
-            mdMap[mdfile_name]=[(SRC,lines)]  
+            mdMap[mdfile_name]=[(TXT,[MAGIC_MODDOC_COMMENT]),(SRC,lines)]  
                   
         package_path = os.path.dirname( magic_init_path )                  
         
@@ -328,7 +328,7 @@ def write_doc(src: str, dest: str, options: dict = None, _skip_yaml: bool = Fals
                 sec_type, sec_lines = page_section
                 if sec_type==TXT:
                     if sec_lines[0]==MAGIC_MODDOC_COMMENT:
-                        md_file.write(magic_moddoc)
+                        md_file.write(magic_moddoc + NEW_LINE)
                         continue
                     md_file.write(NEW_LINE.join(sec_lines))
                     md_file.write(NEW_LINE)        
@@ -1528,6 +1528,9 @@ def __get_import_vars( module ):
 def __write_mod( md_file, module_path: str, package_name: str, class_name: str, options ):
     try:
         module = __get_import_by_path( module_path )
+        moddoc = __markdown_safe( inspect.getdoc(module) or "" )
+        if moddoc:
+            md_file.write(moddoc + "\n\n")
         clas  = [create_class(module, package_name, n, o, options) # 
                 for n, o in inspect.getmembers(module, inspect.isclass)]
         funs  = [create_fun(n, o, options)
